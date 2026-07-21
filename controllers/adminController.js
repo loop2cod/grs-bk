@@ -103,11 +103,11 @@ const listCustomers = async (req, res) => {
 
 const createCustomer = async (req, res) => {
   try {
-    const { name, email, phone } = req.body;
+    const { name, email, phone, address } = req.body;
     const { username, password } = await generateCredentials(name, 'customer');
 
     const customer = await User.create({
-      name, email, phone, username, password,
+      name, email, phone, address, username, password,
       role: 'customer', mustChangePassword: true, createdBy: req.user._id,
     });
 
@@ -140,10 +140,10 @@ const getCustomer = async (req, res) => {
 
 const updateCustomer = async (req, res) => {
   try {
-    const { name, email, phone, status } = req.body;
+    const { name, email, phone, status, address } = req.body;
     const customer = await User.findOneAndUpdate(
       { _id: req.params.id, role: 'customer' },
-      { name, email, phone, status },
+      { name, email, phone, status, address },
       { new: true, runValidators: true }
     );
     if (!customer) return res.status(404).json({ message: 'Customer not found' });
