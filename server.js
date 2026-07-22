@@ -10,7 +10,6 @@ const driverRoutes = require('./routes/driver');
 const customerRoutes = require('./routes/customer');
 const shipmentRoutes = require('./routes/shipment');
 const pricingRoutes = require('./routes/pricing');
-
 const app = express();
 
 app.use(cors());

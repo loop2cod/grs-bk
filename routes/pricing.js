@@ -7,15 +7,15 @@ const { listPricing, createPricing, updatePricing, deletePricing } = require('..
 
 const router = Router();
 
-router.use(protect, authorize('admin'));
+router.use(protect);
 
-router.get('/', listPricing);
-router.post('/', [
+router.get('/', authorize('admin', 'customer', 'driver'), listPricing);
+router.post('/', authorize('admin'), [
   body('name').notEmpty().withMessage('Name is required'),
   body('tiers').isArray({ min: 1 }).withMessage('At least one tier is required'),
   validate,
 ], createPricing);
-router.put('/:id', updatePricing);
-router.delete('/:id', deletePricing);
+router.put('/:id', authorize('admin'), updatePricing);
+router.delete('/:id', authorize('admin'), deletePricing);
 
 module.exports = router;

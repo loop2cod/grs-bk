@@ -9,24 +9,27 @@ const {
   listCustomers, createCustomer, getCustomer, updateCustomer,
   getUserAuthLogs,
 } = require('../controllers/adminController');
-
 const router = Router();
 
-router.use(protect, authorize('admin'));
+router.use(protect);
 
-router.get('/drivers', listDrivers);
-router.post('/drivers', [
+const adminOnly = authorize('admin');
+
+// Drivers
+router.get('/drivers', adminOnly, listDrivers);
+router.post('/drivers', adminOnly, [
   body('name').notEmpty().withMessage('Name is required'),
   body('email').isEmail().withMessage('Valid email is required'),
   body('phone').notEmpty().withMessage('Phone is required'),
   validate,
 ], createDriver);
-router.get('/drivers/:id', getDriver);
-router.put('/drivers/:id', updateDriver);
-router.patch('/drivers/:id/status', toggleDriverStatus);
-router.post('/drivers/:id/reset-password', resetPassword);
+router.get('/drivers/:id', adminOnly, getDriver);
+router.put('/drivers/:id', adminOnly, updateDriver);
+router.patch('/drivers/:id/status', adminOnly, toggleDriverStatus);
+router.post('/drivers/:id/reset-password', adminOnly, resetPassword);
 
-router.get('/customers/search', async (req, res) => {
+// Customers
+router.get('/customers/search', adminOnly, async (req, res) => {
   try {
     const { q } = req.query;
     if (!q || q.length < 1) return res.json([]);
@@ -46,17 +49,18 @@ router.get('/customers/search', async (req, res) => {
   }
 });
 
-router.get('/customers', listCustomers);
-router.post('/customers', [
+router.get('/customers', adminOnly, listCustomers);
+router.post('/customers', adminOnly, [
   body('name').notEmpty().withMessage('Name is required'),
   body('email').isEmail().withMessage('Valid email is required'),
   body('phone').notEmpty().withMessage('Phone is required'),
   validate,
 ], createCustomer);
-router.get('/customers/:id', getCustomer);
-router.put('/customers/:id', updateCustomer);
-router.post('/customers/:id/reset-password', resetPassword);
+router.get('/customers/:id', adminOnly, getCustomer);
+router.put('/customers/:id', adminOnly, updateCustomer);
+router.post('/customers/:id/reset-password', adminOnly, resetPassword);
 
-router.get('/auth-logs/:id', getUserAuthLogs);
+// Auth logs
+router.get('/auth-logs/:id', adminOnly, getUserAuthLogs);
 
 module.exports = router;
