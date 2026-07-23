@@ -10,6 +10,7 @@ const driverRoutes = require('./routes/driver');
 const customerRoutes = require('./routes/customer');
 const shipmentRoutes = require('./routes/shipment');
 const pricingRoutes = require('./routes/pricing');
+const publicRoutes = require('./routes/public');
 const app = express();
 
 app.use(cors());
@@ -22,6 +23,7 @@ app.use('/api/driver', driverRoutes);
 app.use('/api/customer', customerRoutes);
 app.use('/api/admin/shipments', shipmentRoutes);
 app.use('/api/admin/pricing', pricingRoutes);
+app.use('/api/public', publicRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });

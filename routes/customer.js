@@ -7,6 +7,7 @@ const User = require('../models/User');
 const AuthLog = require('../models/AuthLog');
 const Shipment = require('../models/Shipment');
 const PricingSetting = require('../models/PricingSetting');
+const { generateLabel } = require('../services/labelService');
 
 const router = Router();
 
@@ -51,6 +52,24 @@ router.get('/shipments/:id', async (req, res) => {
     res.json(shipment);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+router.get('/shipments/:id/label', async (req, res) => {
+  try {
+    const shipment = await Shipment.findOne({ _id: req.params.id, customer: req.user._id })
+      .populate('customer', 'name')
+      .populate('createdBy', 'name role');
+    if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
+    const pdf = await generateLabel(shipment);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="label-${shipment.trackingNumber}.pdf"`,
+      'Content-Length': pdf.length,
+    });
+    res.send(pdf);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to generate label', error: error.message });
   }
 });
 
