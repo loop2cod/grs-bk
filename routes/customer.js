@@ -22,6 +22,23 @@ router.get('/profile', async (req, res) => {
   }
 });
 
+router.put('/profile', async (req, res) => {
+  try {
+    const { name, email, phone, address } = req.body;
+    const customer = await User.findByIdAndUpdate(
+      req.user._id,
+      { name, email, phone, address },
+      { new: true, runValidators: true }
+    );
+    res.json(customer);
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'Email already exists' });
+    }
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 router.get('/auth-logs', async (req, res) => {
   try {
     const logs = await AuthLog.find({ user: req.user._id })
