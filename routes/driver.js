@@ -129,18 +129,25 @@ router.post('/scan', async (req, res) => {
     }
 
     if (shipment.status === 'in_transit') {
-      if (shipment.assignedDeliveryDriver && shipment.assignedDeliveryDriver.toString() !== driverId.toString()) {
-        return res.status(403).json({ message: 'Another driver is already assigned for delivery' });
+      if (shipment.assignedDeliveryDriver) {
+        if (shipment.assignedDeliveryDriver.toString() !== driverId.toString()) {
+          return res.status(403).json({ message: 'Another driver is already assigned for delivery' });
+        }
+        shipment.status = 'delivered';
+        shipment.deliveredAt = new Date();
+        pushHistory(shipment, 'delivered', req, 'Package delivered via QR scan');
+
+        await shipment.save();
+        const populated = await populateShipment(Shipment.findById(shipment._id));
+        return res.json({ action: 'delivery', message: 'Delivery completed successfully', shipment: populated });
       }
+
       shipment.assignedDeliveryDriver = driverId;
-      shipment.status = 'delivered';
-      shipment.deliveredAt = new Date();
       pushHistory(shipment, 'assigned_delivery_driver', req, 'Auto-assigned via QR scan');
-      pushHistory(shipment, 'delivered', req, 'Package delivered via QR scan');
 
       await shipment.save();
       const populated = await populateShipment(Shipment.findById(shipment._id));
-      return res.json({ action: 'delivery', message: 'Delivery completed successfully', shipment: populated });
+      return res.json({ action: 'assign_delivery', message: 'Delivery driver assigned. Scan again to confirm delivery.', shipment: populated });
     }
 
     const statusMessages = {
