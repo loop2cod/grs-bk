@@ -9,6 +9,23 @@ const router = Router();
 
 router.use(protect, authorize('driver'));
 
+const populateShipment = (query) =>
+  query
+    .populate('customer', 'name email phone address')
+    .populate('createdBy', 'name username role')
+    .populate('assignedPickupDriver', 'name username phone')
+    .populate('assignedDeliveryDriver', 'name username phone')
+    .populate('statusHistory.changedBy', 'name username role');
+
+const pushHistory = (shipment, status, req, remarks) => {
+  shipment.statusHistory.push({
+    status,
+    changedBy: req.user._id,
+    changedAt: new Date(),
+    remarks: remarks || '',
+  });
+};
+
 router.get('/profile', async (req, res) => {
   try {
     const driver = await User.findById(req.user._id);
@@ -59,14 +76,60 @@ router.get('/deliveries', async (req, res) => {
   }
 });
 
+router.post('/scan', async (req, res) => {
+  try {
+    const { trackingNumber } = req.body;
+    if (!trackingNumber) return res.status(400).json({ message: 'Tracking number is required' });
+
+    const shipment = await Shipment.findOne({ trackingNumber: trackingNumber.trim() });
+    if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
+
+    const driverId = req.user._id;
+
+    if (shipment.status === 'pending') {
+      if (shipment.assignedPickupDriver && shipment.assignedPickupDriver.toString() !== driverId.toString()) {
+        return res.status(403).json({ message: 'Another driver is already assigned for pickup' });
+      }
+      shipment.assignedPickupDriver = driverId;
+      shipment.status = 'picked';
+      shipment.pickedAt = new Date();
+      pushHistory(shipment, 'assigned_pickup_driver', req, 'Auto-assigned via QR scan');
+      pushHistory(shipment, 'picked', req, 'Package picked up via QR scan');
+
+      await shipment.save();
+      const populated = await populateShipment(Shipment.findById(shipment._id));
+      return res.json({ action: 'pickup', message: 'Pickup completed successfully', shipment: populated });
+    }
+
+    if (shipment.status === 'in_transit') {
+      if (shipment.assignedDeliveryDriver && shipment.assignedDeliveryDriver.toString() !== driverId.toString()) {
+        return res.status(403).json({ message: 'Another driver is already assigned for delivery' });
+      }
+      shipment.assignedDeliveryDriver = driverId;
+      shipment.status = 'delivered';
+      shipment.deliveredAt = new Date();
+      pushHistory(shipment, 'assigned_delivery_driver', req, 'Auto-assigned via QR scan');
+      pushHistory(shipment, 'delivered', req, 'Package delivered via QR scan');
+
+      await shipment.save();
+      const populated = await populateShipment(Shipment.findById(shipment._id));
+      return res.json({ action: 'delivery', message: 'Delivery completed successfully', shipment: populated });
+    }
+
+    const statusMessages = {
+      picked: 'This package has already been picked up and is at the office',
+      delivered: 'This package has already been delivered',
+      cancelled: 'This shipment has been cancelled',
+    };
+    res.status(400).json({ message: statusMessages[shipment.status] || 'Cannot process this shipment' });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 router.get('/shipments/:id', async (req, res) => {
   try {
-    const shipment = await Shipment.findById(req.params.id)
-      .populate('customer', 'name email phone address')
-      .populate('createdBy', 'name username role')
-      .populate('assignedPickupDriver', 'name username phone')
-      .populate('assignedDeliveryDriver', 'name username phone')
-      .populate('statusHistory.changedBy', 'name username role');
+    const shipment = await populateShipment(Shipment.findById(req.params.id));
     if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
     const isAssignedPickup = shipment.assignedPickupDriver?._id?.toString() === req.user._id.toString();
     const isAssignedDelivery = shipment.assignedDeliveryDriver?._id?.toString() === req.user._id.toString();
@@ -101,12 +164,7 @@ router.patch('/shipments/:id/pickup', async (req, res) => {
     });
     await shipment.save();
 
-    const populated = await Shipment.findById(shipment._id)
-      .populate('customer', 'name email phone address')
-      .populate('createdBy', 'name username role')
-      .populate('assignedPickupDriver', 'name username phone')
-      .populate('assignedDeliveryDriver', 'name username phone')
-      .populate('statusHistory.changedBy', 'name username role');
+    const populated = await populateShipment(Shipment.findById(shipment._id));
     res.json(populated);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -135,12 +193,7 @@ router.patch('/shipments/:id/deliver', async (req, res) => {
     });
     await shipment.save();
 
-    const populated = await Shipment.findById(shipment._id)
-      .populate('customer', 'name email phone address')
-      .populate('createdBy', 'name username role')
-      .populate('assignedPickupDriver', 'name username phone')
-      .populate('assignedDeliveryDriver', 'name username phone')
-      .populate('statusHistory.changedBy', 'name username role');
+    const populated = await populateShipment(Shipment.findById(shipment._id));
     res.json(populated);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
