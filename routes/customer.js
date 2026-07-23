@@ -33,10 +33,16 @@ router.get('/auth-logs', async (req, res) => {
   }
 });
 
+const shipmentPopulate = [
+  { path: 'createdBy', select: 'name username' },
+  { path: 'assignedPickupDriver', select: 'name username phone' },
+  { path: 'assignedDeliveryDriver', select: 'name username phone' },
+];
+
 router.get('/shipments', async (req, res) => {
   try {
     const shipments = await Shipment.find({ customer: req.user._id })
-      .populate('createdBy', 'name username')
+      .populate(shipmentPopulate)
       .sort({ createdAt: -1 });
     res.json(shipments);
   } catch (error) {
@@ -47,7 +53,7 @@ router.get('/shipments', async (req, res) => {
 router.get('/shipments/:id', async (req, res) => {
   try {
     const shipment = await Shipment.findOne({ _id: req.params.id, customer: req.user._id })
-      .populate('createdBy', 'name username');
+      .populate([...shipmentPopulate, { path: 'statusHistory.changedBy', select: 'name username role' }]);
     if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
     res.json(shipment);
   } catch (error) {
@@ -133,13 +139,20 @@ router.post('/shipments', [
       paymentMethod,
       paidAmount: paymentMethod === 'paid' ? finalAmount : (paymentMethod === 'partial' ? (paidAmount || 0) : 0),
       notes,
+      pickupType: 'driver_pickup',
       status: 'pending',
       createdBy: req.user._id,
+      statusHistory: [{
+        status: 'pending',
+        changedBy: req.user._id,
+        changedAt: new Date(),
+        remarks: 'Shipment created by customer',
+      }],
     };
 
     const shipment = await Shipment.create(shipmentData);
     const populated = await Shipment.findById(shipment._id)
-      .populate('createdBy', 'name username');
+      .populate(shipmentPopulate);
 
     res.status(201).json(populated);
   } catch (error) {

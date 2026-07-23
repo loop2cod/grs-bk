@@ -3,7 +3,12 @@ const { body } = require('express-validator');
 const { protect } = require('../middleware/auth');
 const { authorize } = require('../middleware/roleCheck');
 const { validate } = require('../middleware/validate');
-const { listShipments, getShipment, createShipment, updateShipmentStatus } = require('../controllers/shipmentController');
+const {
+  listShipments, getShipment, createShipment,
+  assignPickupDriver, assignDeliveryDriver,
+  markAsPicked, markAsInTransit, handoverToCourier,
+  markDelivered, cancelShipment,
+} = require('../controllers/shipmentController');
 const Shipment = require('../models/Shipment');
 const { generateLabel } = require('../services/labelService');
 
@@ -22,10 +27,22 @@ router.post('/', [
   validate,
 ], createShipment);
 router.get('/:id', getShipment);
-router.patch('/:id/status', [
-  body('status').isIn(['pending', 'in_transit', 'delivered', 'cancelled']),
+router.patch('/:id/assign-pickup-driver', [
+  body('driverId').notEmpty().withMessage('Driver is required'),
   validate,
-], updateShipmentStatus);
+], assignPickupDriver);
+router.patch('/:id/assign-delivery-driver', [
+  body('driverId').notEmpty().withMessage('Driver is required'),
+  validate,
+], assignDeliveryDriver);
+router.patch('/:id/mark-picked', markAsPicked);
+router.patch('/:id/mark-in-transit', markAsInTransit);
+router.patch('/:id/handover-courier', [
+  body('partnerName').notEmpty().withMessage('Courier partner name is required'),
+  validate,
+], handoverToCourier);
+router.patch('/:id/deliver', markDelivered);
+router.patch('/:id/cancel', cancelShipment);
 router.get('/:id/label', async (req, res) => {
   try {
     const shipment = await Shipment.findById(req.params.id)

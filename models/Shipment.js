@@ -31,12 +31,33 @@ const shipmentSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ['pending', 'in_transit', 'delivered', 'cancelled'],
+    enum: ['pending', 'picked', 'in_transit', 'delivered', 'cancelled'],
     default: 'pending',
   },
+
+  pickupType: {
+    type: String,
+    enum: ['office_dropoff', 'driver_pickup'],
+    default: 'office_dropoff',
+  },
+
+  assignedPickupDriver: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  assignedDeliveryDriver: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  courierPartner: { type: String, default: null },
+
+  pickedAt: { type: Date },
+  deliveredAt: { type: Date },
+
   notes: { type: String },
 
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+
+  statusHistory: [{
+    status: { type: String, required: true },
+    changedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    changedAt: { type: Date, default: Date.now },
+    remarks: { type: String },
+  }],
 }, { timestamps: true });
 
 shipmentSchema.pre('save', async function (next) {
@@ -63,5 +84,7 @@ shipmentSchema.pre('save', async function (next) {
 
 shipmentSchema.index({ customer: 1 });
 shipmentSchema.index({ status: 1 });
+shipmentSchema.index({ assignedPickupDriver: 1 });
+shipmentSchema.index({ assignedDeliveryDriver: 1 });
 
 module.exports = mongoose.model('Shipment', shipmentSchema);
