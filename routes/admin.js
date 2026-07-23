@@ -5,6 +5,7 @@ const { authorize } = require('../middleware/roleCheck');
 const { validate } = require('../middleware/validate');
 const { resetPassword } = require('../controllers/authController');
 const {
+  listAdmins, createAdmin, updateProfile,
   listDrivers, createDriver, getDriver, updateDriver, toggleDriverStatus,
   listCustomers, createCustomer, getCustomer, updateCustomer,
   getUserAuthLogs,
@@ -14,6 +15,18 @@ const router = Router();
 router.use(protect);
 
 const adminOnly = authorize('admin');
+
+// Admin self-profile
+router.put('/profile', adminOnly, updateProfile);
+
+// Admins
+router.get('/admins', adminOnly, listAdmins);
+router.post('/create', adminOnly, [
+  body('name').notEmpty().withMessage('Name is required'),
+  body('email').isEmail().withMessage('Valid email is required'),
+  body('phone').notEmpty().withMessage('Phone is required'),
+  validate,
+], createAdmin);
 
 // Drivers
 router.get('/drivers', adminOnly, listDrivers);

@@ -15,6 +15,60 @@ const generateCredentials = async (name, role) => {
   return { username, password };
 };
 
+const listAdmins = async (req, res) => {
+  try {
+    const admins = await User.find({ role: 'admin' }).populate('createdBy', 'name username');
+    res.json(admins);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+const createAdmin = async (req, res) => {
+  try {
+    const { name, email, phone } = req.body;
+    const { username, password } = await generateCredentials(name, 'admin');
+
+    const admin = await User.create({
+      name, email, phone, username, password,
+      role: 'admin', mustChangePassword: true, createdBy: req.user._id,
+    });
+
+    await AuthLog.create({
+      user: admin._id,
+      action: 'password_reset',
+      ipAddress: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+
+    res.status(201).json({ ...admin.toJSON(), defaultPassword: password });
+  } catch (error) {
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(400).json({ message: `${field} already exists` });
+    }
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
+const updateProfile = async (req, res) => {
+  try {
+    const { name, email, phone, username } = req.body;
+    const admin = await User.findByIdAndUpdate(
+      req.user._id,
+      { name, email, phone, username },
+      { new: true, runValidators: true }
+    );
+    res.json(admin);
+  } catch (error) {
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(400).json({ message: `${field} already exists` });
+    }
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 const listDrivers = async (req, res) => {
   try {
     const drivers = await User.find({ role: 'driver' }).populate('createdBy', 'name username');
@@ -170,6 +224,7 @@ const getUserAuthLogs = async (req, res) => {
 };
 
 module.exports = {
+  listAdmins, createAdmin, updateProfile,
   listDrivers, createDriver, getDriver, updateDriver, toggleDriverStatus,
   listCustomers, createCustomer, getCustomer, updateCustomer,
   getUserAuthLogs,
