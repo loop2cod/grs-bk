@@ -15,9 +15,14 @@ const createAuthLog = async (userId, action, req) => {
 
 const login = async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { username, email, password } = req.body;
 
-    const user = await User.findOne({ username });
+    const user = await User.findOne({
+      $or: [
+        ...(username ? [{ username }] : []),
+        ...(email ? [{ email }] : []),
+      ],
+    });
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
