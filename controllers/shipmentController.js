@@ -3,13 +3,17 @@ const PricingSetting = require('../models/PricingSetting');
 
 const calculatePrice = (weight, pricing) => {
   if (!pricing || !pricing.tiers) return 0;
-  const tier = pricing.tiers.find(t => {
+  const sorted = [...pricing.tiers].sort((a, b) => a.minWeight - b.minWeight);
+  const found = sorted.find(t => {
     if (t.maxWeight === undefined) return weight >= t.minWeight;
     return weight >= t.minWeight && weight <= t.maxWeight;
   });
-  if (!tier) return 0;
-  if (tier.type === 'fixed') return tier.price;
-  return tier.price * weight;
+  if (!found) return 0;
+  if (found.type === 'fixed') return found.price;
+  const maxFixed = sorted
+    .filter(t => t.type === 'fixed' && t.price != null)
+    .reduce((max, t) => Math.max(max, t.price), 0);
+  return maxFixed + found.price * Math.max(0, weight - found.minWeight);
 };
 
 const pushHistory = (shipment, status, req, remarks) => {
