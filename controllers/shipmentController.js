@@ -30,10 +30,78 @@ const basePopulate = [
 
 const listShipments = async (req, res) => {
   try {
-    const shipments = await Shipment.find()
-      .populate(basePopulate)
-      .sort({ createdAt: -1 });
-    res.json(shipments);
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20));
+    const status = req.query.status;
+    const search = req.query.search;
+    const skip = (page - 1) * limit;
+
+    const pipeline = [];
+
+    const userProjection = { name: 1, email: 1, phone: 1, username: 1, address: 1, role: 1 };
+
+    for (const { as, localField } of [
+      { as: 'customer', localField: 'customer' },
+      { as: 'createdBy', localField: 'createdBy' },
+      { as: 'assignedPickupDriver', localField: 'assignedPickupDriver' },
+      { as: 'assignedDeliveryDriver', localField: 'assignedDeliveryDriver' },
+    ]) {
+      pipeline.push({
+        $lookup: {
+          from: 'users',
+          localField,
+          foreignField: '_id',
+          as,
+          pipeline: [{ $project: userProjection }],
+        },
+      });
+      pipeline.push({ $unwind: { path: `$${as}`, preserveNullAndEmptyArrays: true } });
+    }
+
+    pipeline.push({
+      $addFields: {
+        sortPriority: {
+          $switch: {
+            branches: [
+              { case: { $in: ['$status', ['pending', 'picked', 'in_transit']] }, then: 0 },
+              { case: { $eq: ['$status', 'delivered'] }, then: 1 },
+              { case: { $eq: ['$status', 'cancelled'] }, then: 2 },
+            ],
+            default: 3,
+          },
+        },
+      },
+    });
+
+    const matchStage = {};
+    if (status) matchStage.status = status;
+    if (search) {
+      matchStage.$or = [
+        { trackingNumber: { $regex: search, $options: 'i' } },
+        { 'customer.name': { $regex: search, $options: 'i' } },
+      ];
+    }
+    if (Object.keys(matchStage).length > 0) {
+      pipeline.push({ $match: matchStage });
+    }
+
+    pipeline.push({ $sort: { sortPriority: 1, createdAt: -1 } });
+
+    pipeline.push({
+      $facet: {
+        metadata: [{ $count: 'total' }],
+        data: [{ $skip: skip }, { $limit: limit }],
+      },
+    });
+
+    const result = await Shipment.aggregate(pipeline);
+    const total = result[0]?.metadata[0]?.total || 0;
+    const shipments = (result[0]?.data || []).map(s => { delete s.sortPriority; return s });
+
+    res.json({
+      shipments,
+      pagination: { total, page, limit, pages: Math.ceil(total / limit) || 1 },
+    });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
