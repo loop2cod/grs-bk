@@ -16,6 +16,8 @@ const populateShipment = (query) =>
     .populate('assignedPickupDriver', 'name username phone')
     .populate('assignedDeliveryDriver', 'name username phone')
     .populate('codCollectedBy', 'name username')
+    .populate('codPaidToCustomerBy', 'name username')
+    .populate('returnChargeCollectedBy', 'name username')
     .populate('statusHistory.changedBy', 'name username role');
 
 const pushHistory = (shipment, status, req, remarks) => {
@@ -242,6 +244,10 @@ router.post('/scan', async (req, res) => {
     } else if (selectedAction === 'return_to_sender') {
       shipment.status = 'returned_to_sender';
       shipment.deliveredAt = new Date();
+      if (shipment.returnCharge > 0) {
+        shipment.returnChargeCollectedBy = req.user._id;
+        shipment.returnChargeCollectedAt = new Date();
+      }
       pushHistory(shipment, 'returned_to_sender', req, 'Package returned to sender via QR scan');
     } else if (selectedAction === 'pickup') {
       shipment.assignedPickupDriver = driverId;
@@ -431,6 +437,124 @@ router.patch('/shipments/:id/return-to-office', async (req, res) => {
 
     const populated = await populateShipment(Shipment.findById(shipment._id));
     res.json(populated);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+router.get('/daily-summary', async (req, res) => {
+  try {
+    const now = new Date();
+    const uaeOffset = 4 * 60 * 60 * 1000;
+    const uaeNow = new Date(now.getTime() + uaeOffset);
+    const dayStart = new Date(Date.UTC(uaeNow.getUTCFullYear(), uaeNow.getUTCMonth(), uaeNow.getUTCDate()) - uaeOffset);
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+    const driverId = req.user._id;
+
+    const [pickups, deliveries, settlements] = await Promise.all([
+      Shipment.find({
+        assignedPickupDriver: driverId,
+        pickedAt: { $gte: dayStart, $lt: dayEnd },
+      })
+        .populate('customer', 'name email phone address')
+        .populate('createdBy', 'name username')
+        .sort({ pickedAt: -1 }),
+
+      Shipment.find({
+        assignedDeliveryDriver: driverId,
+        deliveredAt: { $gte: dayStart, $lt: dayEnd },
+      })
+        .populate('customer', 'name email phone address')
+        .populate('createdBy', 'name username')
+        .sort({ deliveredAt: -1 }),
+
+      Shipment.aggregate([
+        {
+          $match: {
+            $or: [
+              { assignedDeliveryDriver: driverId, deliveredAt: { $gte: dayStart, $lt: dayEnd } },
+              { assignedPickupDriver: driverId, pickedAt: { $gte: dayStart, $lt: dayEnd } },
+              { returnChargeCollectedBy: driverId, returnChargeCollectedAt: { $gte: dayStart, $lt: dayEnd } },
+            ],
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            codCollectedTotal: { $sum: { $ifNull: ['$codCollectedAmount', 0] } },
+            payFirstTakenTotal: {
+              $sum: {
+                $cond: [
+                  { $and: [{ $eq: ['$codType', 'pay_first'] }, { $eq: ['$codPaidToCustomer', true] }] },
+                  { $ifNull: ['$itemValue', 0] },
+                  0,
+                ],
+              },
+            },
+            returnChargeTotal: {
+              $sum: {
+                $cond: [
+                  { $and: [{ $eq: ['$returnChargeCollectedBy', driverId] }, { $ne: ['$returnChargeCollectedAt', null] }] },
+                  { $ifNull: ['$returnCharge', 0] },
+                  0,
+                ],
+              },
+            },
+            codDeliveryCount: {
+              $sum: {
+                $cond: [
+                  { $and: [{ $eq: ['$paymentMethod', 'cod'] }, { $eq: ['$assignedDeliveryDriver', driverId] }] },
+                  1,
+                  0,
+                ],
+              },
+            },
+            payFirstCount: {
+              $sum: {
+                $cond: [
+                  { $and: [{ $eq: ['$codType', 'pay_first'] }, { $eq: ['$codPaidToCustomer', true] }, { $eq: ['$assignedPickupDriver', driverId] }] },
+                  1,
+                  0,
+                ],
+              },
+            },
+            returnChargeCount: {
+              $sum: {
+                $cond: [
+                  { $and: [{ $eq: ['$returnChargeCollectedBy', driverId] }, { $ne: ['$returnChargeCollectedAt', null] }] },
+                  1,
+                  0,
+                ],
+              },
+            },
+          },
+        },
+      ]),
+    ]);
+
+    const fin = settlements[0] || {};
+    const codCollectedTotal = fin.codCollectedTotal || 0;
+    const payFirstTakenTotal = fin.payFirstTakenTotal || 0;
+    const returnChargeTotal = fin.returnChargeTotal || 0;
+    const totalAccountability = codCollectedTotal + returnChargeTotal;
+
+    res.json({
+      date: uaeNow.toISOString().slice(0, 10),
+      pickups,
+      deliveries,
+      pickupCount: pickups.length,
+      deliveryCount: deliveries.length,
+      settlement: {
+        codCollectedTotal,
+        payFirstTakenTotal,
+        returnChargeTotal,
+        totalAccountability,
+        codDeliveryCount: fin.codDeliveryCount || 0,
+        payFirstCount: fin.payFirstCount || 0,
+        returnChargeCount: fin.returnChargeCount || 0,
+      },
+    });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }

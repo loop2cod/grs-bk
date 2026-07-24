@@ -62,6 +62,8 @@ const shipmentSchema = new mongoose.Schema({
 
   returnToSender: { type: Boolean, default: false },
   returnCharge: { type: Number, default: null },
+  returnChargeCollectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  returnChargeCollectedAt: { type: Date },
 
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 
