@@ -30,6 +30,8 @@ const basePopulate = [
   { path: 'createdBy', select: 'name username role' },
   { path: 'assignedPickupDriver', select: 'name username phone' },
   { path: 'assignedDeliveryDriver', select: 'name username phone' },
+  { path: 'codCollectedBy', select: 'name username' },
+  { path: 'codPaidToCustomerBy', select: 'name username' },
 ];
 
 const listShipments = async (req, res) => {
@@ -130,6 +132,7 @@ const createShipment = async (req, res) => {
       deliveryAddress, deliveryContactName, deliveryContactPhone,
       items, pricingTier, customAmount, paymentMethod, paidAmount,
       notes, pickupType, assignedPickupDriver,
+      itemValue, codType,
     } = req.body;
 
     if (!items || items.length === 0) {
@@ -149,6 +152,11 @@ const createShipment = async (req, res) => {
 
     const baseAmount = pricing ? calculatePrice(totalWeight, pricing) : 0;
     const finalAmount = customAmount !== undefined && customAmount !== null ? customAmount : baseAmount;
+    const itemVal = itemValue || 0;
+    const deliveryChg = finalAmount;
+    const isCod = paymentMethod === 'cod';
+    const codTypeVal = isCod ? (codType || 'collect_on_delivery') : undefined;
+    const totalCollectible = isCod ? itemVal + deliveryChg : 0;
 
     const pt = pickupType || 'office_dropoff';
     const isOfficeDropoff = pt === 'office_dropoff';
@@ -170,6 +178,10 @@ const createShipment = async (req, res) => {
       customAmount: customAmount !== undefined && customAmount !== null ? customAmount : undefined,
       finalAmount,
       paymentMethod,
+      codType: codTypeVal,
+      itemValue: itemVal,
+      deliveryCharge: deliveryChg,
+      totalCollectible,
       paidAmount: paymentMethod === 'paid' ? finalAmount : (paymentMethod === 'partial' ? (paidAmount || 0) : 0),
       notes,
       pickupType: pt,

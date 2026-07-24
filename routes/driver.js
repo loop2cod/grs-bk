@@ -15,6 +15,7 @@ const populateShipment = (query) =>
     .populate('createdBy', 'name username role')
     .populate('assignedPickupDriver', 'name username phone')
     .populate('assignedDeliveryDriver', 'name username phone')
+    .populate('codCollectedBy', 'name username')
     .populate('statusHistory.changedBy', 'name username role');
 
 const pushHistory = (shipment, status, req, remarks) => {
@@ -260,6 +261,11 @@ router.post('/scan', async (req, res) => {
       shipment.status = 'delivered';
       shipment.deliveredAt = new Date();
       pushHistory(shipment, 'delivered', req, 'Package delivered via QR scan');
+      if (shipment.paymentMethod === 'cod' && shipment.totalCollectible > 0) {
+        shipment.codCollectedBy = req.user._id;
+        shipment.codCollectedAt = new Date();
+        shipment.codCollectedAmount = req.body.collectedAmount || shipment.totalCollectible;
+      }
     }
 
     await shipment.save();
@@ -340,7 +346,7 @@ router.patch('/shipments/:id/drop-office', async (req, res) => {
 
 router.patch('/shipments/:id/deliver', async (req, res) => {
   try {
-    const { remarks } = req.body;
+    const { remarks, collectedAmount } = req.body;
     const shipment = await Shipment.findById(req.params.id);
     if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
     if (shipment.status !== 'in_transit') {
@@ -358,6 +364,11 @@ router.patch('/shipments/:id/deliver', async (req, res) => {
       changedAt: new Date(),
       remarks: remarks || 'Package delivered by driver',
     });
+    if (shipment.paymentMethod === 'cod' && shipment.totalCollectible > 0) {
+      shipment.codCollectedBy = req.user._id;
+      shipment.codCollectedAt = new Date();
+      shipment.codCollectedAmount = collectedAmount || shipment.totalCollectible;
+    }
     await shipment.save();
 
     const populated = await populateShipment(Shipment.findById(shipment._id));

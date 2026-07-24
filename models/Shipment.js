@@ -27,7 +27,17 @@ const shipmentSchema = new mongoose.Schema({
   finalAmount: { type: Number, required: true },
 
   paymentMethod: { type: String, enum: ['cod', 'paid', 'partial'], required: true },
+  codType: { type: String, enum: ['pay_first', 'collect_on_delivery'] },
+  itemValue: { type: Number, default: 0 },
+  deliveryCharge: { type: Number, default: 0 },
+  totalCollectible: { type: Number, default: 0 },
   paidAmount: { type: Number, default: 0 },
+  codPaidToCustomer: { type: Boolean, default: false },
+  codPaidToCustomerBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  codPaidToCustomerAt: { type: Date },
+  codCollectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  codCollectedAt: { type: Date },
+  codCollectedAmount: { type: Number, default: null },
 
   status: {
     type: String,
