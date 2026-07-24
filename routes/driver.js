@@ -444,13 +444,23 @@ router.patch('/shipments/:id/return-to-office', async (req, res) => {
 
 router.get('/daily-summary', async (req, res) => {
   try {
-    const now = new Date();
-    const uaeOffset = 4 * 60 * 60 * 1000;
-    const uaeNow = new Date(now.getTime() + uaeOffset);
-    const dayStart = new Date(Date.UTC(uaeNow.getUTCFullYear(), uaeNow.getUTCMonth(), uaeNow.getUTCDate()) - uaeOffset);
-    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
-
     const driverId = req.user._id;
+    const uaeOffset = 4 * 60 * 60 * 1000;
+
+    let dayStart, dayEnd, displayDate;
+    if (req.query.date) {
+      const parts = req.query.date.split('-');
+      const uaeDate = new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])));
+      dayStart = new Date(uaeDate.getTime() - uaeOffset);
+      dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+      displayDate = req.query.date;
+    } else {
+      const now = new Date();
+      const uaeNow = new Date(now.getTime() + uaeOffset);
+      dayStart = new Date(Date.UTC(uaeNow.getUTCFullYear(), uaeNow.getUTCMonth(), uaeNow.getUTCDate()) - uaeOffset);
+      dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+      displayDate = uaeNow.toISOString().slice(0, 10);
+    }
 
     const [pickups, deliveries, settlements] = await Promise.all([
       Shipment.find({
@@ -540,7 +550,7 @@ router.get('/daily-summary', async (req, res) => {
     const totalAccountability = codCollectedTotal + returnChargeTotal;
 
     res.json({
-      date: uaeNow.toISOString().slice(0, 10),
+      date: displayDate,
       pickups,
       deliveries,
       pickupCount: pickups.length,
