@@ -5,8 +5,9 @@ const calculatePrice = (weight, pricing) => {
   if (!pricing || !pricing.tiers) return 0;
   const sorted = [...pricing.tiers].sort((a, b) => a.minWeight - b.minWeight);
   const found = sorted.find(t => {
-    if (t.maxWeight === undefined) return weight >= t.minWeight;
-    return weight >= t.minWeight && weight <= t.maxWeight;
+    const minOk = t.minWeight === undefined || t.minWeight === null || weight >= t.minWeight;
+    const maxOk = t.maxWeight === undefined || t.maxWeight === null || weight <= t.maxWeight;
+    return minOk && maxOk;
   });
   if (!found) return 0;
   if (found.type === 'fixed') return found.price;

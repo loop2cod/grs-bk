@@ -229,6 +229,9 @@ router.post('/scan', async (req, res) => {
       shipment.assignedDeliveryDriver = null;
       shipment.returnToSender = true;
       shipment.status = 'picked';
+      if (req.body.returnCharge != null) {
+        shipment.returnCharge = req.body.returnCharge;
+      }
       pushHistory(shipment, 'picked', req, 'Cancelled package dropped at office via QR scan');
     } else if (selectedAction === 'pickup_return_to_sender') {
       shipment.assignedDeliveryDriver = driverId;
@@ -246,6 +249,11 @@ router.post('/scan', async (req, res) => {
       shipment.pickedAt = new Date();
       pushHistory(shipment, 'assigned_pickup_driver', req, 'Auto-assigned via QR scan');
       pushHistory(shipment, 'picked', req, 'Package picked up via QR scan');
+      if (shipment.paymentMethod === 'cod' && shipment.codType === 'pay_first') {
+        shipment.codPaidToCustomer = true;
+        shipment.codPaidToCustomerBy = req.user._id;
+        shipment.codPaidToCustomerAt = new Date();
+      }
     } else if (selectedAction === 'drop_office') {
       shipment.status = 'in_transit';
       pushHistory(shipment, 'in_transit', req, 'Package dropped at office via QR scan');
@@ -386,8 +394,10 @@ router.patch('/shipments/:id/cancel', async (req, res) => {
     if (shipment.status !== 'in_transit') {
       return res.status(400).json({ message: 'Shipment must be in transit to cancel' });
     }
-    if (shipment.assignedDeliveryDriver?.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'You are not the delivery driver for this shipment' });
+    const isDeliveryDriver = shipment.assignedDeliveryDriver?.toString() === req.user._id.toString();
+    const isPickupDriver = shipment.assignedPickupDriver?.toString() === req.user._id.toString();
+    if (!isDeliveryDriver && !isPickupDriver) {
+      return res.status(403).json({ message: 'You are not assigned to this shipment' });
     }
 
     shipment.status = 'cancelled';

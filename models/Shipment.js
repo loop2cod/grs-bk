@@ -61,6 +61,7 @@ const shipmentSchema = new mongoose.Schema({
   notes: { type: String },
 
   returnToSender: { type: Boolean, default: false },
+  returnCharge: { type: Number, default: null },
 
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 

@@ -109,7 +109,7 @@ router.post('/shipments', [
       pickupAddress, useDifferentPickup, alternatePickupAddress,
       deliveryAddress, deliveryContactName, deliveryContactPhone,
       items, pricingTier, customAmount, paymentMethod, paidAmount,
-      notes,
+      notes, itemValue, codType,
     } = req.body;
 
     const totalWeight = items.reduce((sum, i) => sum + (i.weight * i.quantity), 0);
@@ -125,17 +125,27 @@ router.post('/shipments', [
 
     const calculatePrice = (weight, p) => {
       if (!p || !p.tiers) return 0;
-      const tier = p.tiers.find(t => {
-        if (t.maxWeight === undefined) return weight >= t.minWeight;
-        return weight >= t.minWeight && weight <= t.maxWeight;
+      const sorted = [...p.tiers].sort((a, b) => a.minWeight - b.minWeight);
+      const tier = sorted.find(t => {
+        const minOk = t.minWeight === undefined || t.minWeight === null || weight >= t.minWeight;
+        const maxOk = t.maxWeight === undefined || t.maxWeight === null || weight <= t.maxWeight;
+        return minOk && maxOk;
       });
       if (!tier) return 0;
       if (tier.type === 'fixed') return tier.price;
-      return tier.price * weight;
+      const maxFixed = sorted
+        .filter(t => t.type === 'fixed' && t.price != null)
+        .reduce((max, t) => Math.max(max, t.price), 0);
+      return maxFixed + tier.price * Math.max(0, weight - tier.minWeight);
     };
 
     const baseAmount = pricing ? calculatePrice(totalWeight, pricing) : 0;
     const finalAmount = customAmount !== undefined && customAmount !== null ? customAmount : baseAmount;
+    const itemVal = itemValue || 0;
+    const deliveryChg = finalAmount;
+    const isCod = paymentMethod === 'cod';
+    const codTypeVal = isCod ? (codType || 'collect_on_delivery') : undefined;
+    const totalCollectible = isCod ? itemVal + deliveryChg : 0;
 
     const shipmentData = {
       customer: req.user._id,
@@ -154,6 +164,10 @@ router.post('/shipments', [
       customAmount: customAmount !== undefined && customAmount !== null ? customAmount : undefined,
       finalAmount,
       paymentMethod,
+      codType: codTypeVal,
+      itemValue: itemVal,
+      deliveryCharge: deliveryChg,
+      totalCollectible,
       paidAmount: paymentMethod === 'paid' ? finalAmount : (paymentMethod === 'partial' ? (paidAmount || 0) : 0),
       notes,
       pickupType: 'driver_pickup',
