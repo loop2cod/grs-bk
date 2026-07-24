@@ -69,7 +69,8 @@ const listShipments = async (req, res) => {
             branches: [
               { case: { $in: ['$status', ['pending', 'picked', 'in_transit']] }, then: 0 },
               { case: { $eq: ['$status', 'delivered'] }, then: 1 },
-              { case: { $eq: ['$status', 'cancelled'] }, then: 2 },
+              { case: { $in: ['$status', ['returned', 'returned_to_sender']] }, then: 2 },
+              { case: { $eq: ['$status', 'cancelled'] }, then: 3 },
             ],
             default: 3,
           },

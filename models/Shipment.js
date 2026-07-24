@@ -31,7 +31,7 @@ const shipmentSchema = new mongoose.Schema({
 
   status: {
     type: String,
-    enum: ['pending', 'picked', 'in_transit', 'delivered', 'cancelled'],
+    enum: ['pending', 'picked', 'in_transit', 'delivered', 'cancelled', 'returned', 'returned_to_sender'],
     default: 'pending',
   },
 
@@ -49,6 +49,8 @@ const shipmentSchema = new mongoose.Schema({
   deliveredAt: { type: Date },
 
   notes: { type: String },
+
+  returnToSender: { type: Boolean, default: false },
 
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
 

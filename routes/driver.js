@@ -100,6 +100,9 @@ const determineAction = (shipment, driverId) => {
   }
 
   if (shipment.status === 'picked') {
+    if (shipment.returnToSender) {
+      return { allowed: true, action: 'pickup_return_to_sender', label: 'Pick up for return to sender', description: 'Pick up this cancelled package from the office to return it to the original customer.' };
+    }
     if (shipment.assignedPickupDriver && shipment.assignedPickupDriver.toString() === driverId.toString()) {
       return { allowed: true, action: 'drop_office', label: 'Drop at office', description: 'Mark this package as dropped at the office.' };
     }
@@ -114,21 +117,69 @@ const determineAction = (shipment, driverId) => {
       return { allowed: true, action: 'assign_delivery', label: 'Assign me for delivery', description: 'You will be assigned as the delivery driver for this package.' };
     }
     if (shipment.assignedDeliveryDriver.toString() === driverId.toString()) {
-      return { allowed: true, action: 'delivery', label: 'Deliver to customer', description: 'Mark this package as delivered to the customer.' };
+      if (shipment.returnToSender) {
+        return {
+          allowed: true,
+          action: 'return_to_sender',
+          label: 'Return package to sender',
+          description: 'Deliver this package back to the original sender (customer).',
+          altActions: [],
+        };
+      }
+      return {
+        allowed: true,
+        action: 'delivery',
+        label: 'Deliver to customer',
+        description: 'Mark this package as delivered to the customer.',
+        altActions: [{
+          action: 'return_to_office',
+          label: 'Return to office',
+          description: 'Return this package to the office (e.g., customer not available, wrong address).',
+        }, {
+          action: 'cancel',
+          label: 'Cancel shipment',
+          description: 'Cancel this shipment entirely.',
+        }],
+      };
     }
     return { allowed: false, message: 'Another driver is already assigned for delivery' };
   }
 
+  if (shipment.status === 'returned') {
+    if (shipment.assignedDeliveryDriver?.toString() === driverId.toString()) {
+      return {
+        allowed: true,
+        action: 'drop_office_returned',
+        label: 'Drop returned package at office',
+        description: 'Mark this returned package as dropped at the office, so another driver can re-deliver it.',
+        altActions: [],
+      };
+    }
+    if (!shipment.assignedDeliveryDriver) {
+      return { allowed: true, action: 'office_pickup', label: 'Pick up from office for delivery', description: 'Collect this package from the office and deliver to the customer.' };
+    }
+    return { allowed: false, message: 'Only the delivery driver can drop this returned package at the office' };
+  }
+
+  if (shipment.status === 'cancelled') {
+    return {
+      allowed: true,
+      action: 'drop_cancelled_at_office',
+      label: 'Drop cancelled package at office',
+      description: 'Drop this cancelled package at the office, so it can be returned to the original customer.',
+      altActions: [],
+    };
+  }
+
   const terminalMessages = {
     delivered: 'This package has already been delivered',
-    cancelled: 'This shipment has been cancelled',
   };
   return { allowed: false, message: terminalMessages[shipment.status] || 'Cannot process this shipment' };
 };
 
 router.post('/scan', async (req, res) => {
   try {
-    const { trackingNumber, confirmed } = req.body;
+    const { trackingNumber, confirmed, action: reqAction } = req.body;
     if (!trackingNumber) return res.status(400).json({ message: 'Tracking number is required' });
 
     const shipment = await Shipment.findOne({ trackingNumber: trackingNumber.trim() });
@@ -141,29 +192,71 @@ router.post('/scan', async (req, res) => {
       return res.status(403).json({ message: decision.message });
     }
 
-    if (!confirmed) {
-      const preview = await populateShipment(Shipment.findById(shipment._id));
-      return res.json({ preview: true, action: decision.action, label: decision.label, description: decision.description, shipment: preview });
+    const selectedAction = reqAction || decision.action;
+
+    const altActionsList = decision.altActions || [];
+    const allActions = [decision, ...altActionsList];
+    const selected = allActions.find(a => a.action === selectedAction);
+
+    if (!selected) {
+      return res.status(400).json({ message: 'Invalid action for this shipment' });
     }
 
-    if (decision.action === 'pickup') {
+    if (!confirmed) {
+      const preview = await populateShipment(Shipment.findById(shipment._id));
+      return res.json({
+        preview: true,
+        action: decision.action,
+        label: decision.label,
+        description: decision.description,
+        altActions: decision.altActions || [],
+        shipment: preview,
+      });
+    }
+
+    if (selectedAction === 'cancel') {
+      shipment.status = 'cancelled';
+      pushHistory(shipment, 'cancelled', req, req.body.remarks || 'Shipment cancelled via QR scan');
+    } else if (selectedAction === 'return_to_office') {
+      shipment.status = 'returned';
+      pushHistory(shipment, 'returned', req, req.body.remarks || 'Package returned to office via QR scan');
+    } else if (selectedAction === 'drop_office_returned') {
+      shipment.assignedDeliveryDriver = null;
+      shipment.status = 'in_transit';
+      pushHistory(shipment, 'in_transit', req, 'Returned package dropped at office via QR scan');
+    } else if (selectedAction === 'drop_cancelled_at_office') {
+      shipment.assignedDeliveryDriver = null;
+      shipment.returnToSender = true;
+      shipment.status = 'picked';
+      pushHistory(shipment, 'picked', req, 'Cancelled package dropped at office via QR scan');
+    } else if (selectedAction === 'pickup_return_to_sender') {
+      shipment.assignedDeliveryDriver = driverId;
+      shipment.returnToSender = true;
+      shipment.status = 'in_transit';
+      pushHistory(shipment, 'assigned_delivery_driver', req, 'Auto-assigned for return to sender via QR scan');
+      pushHistory(shipment, 'in_transit', req, 'Package picked up from office for return to sender via QR scan');
+    } else if (selectedAction === 'return_to_sender') {
+      shipment.status = 'returned_to_sender';
+      shipment.deliveredAt = new Date();
+      pushHistory(shipment, 'returned_to_sender', req, 'Package returned to sender via QR scan');
+    } else if (selectedAction === 'pickup') {
       shipment.assignedPickupDriver = driverId;
       shipment.status = 'picked';
       shipment.pickedAt = new Date();
       pushHistory(shipment, 'assigned_pickup_driver', req, 'Auto-assigned via QR scan');
       pushHistory(shipment, 'picked', req, 'Package picked up via QR scan');
-    } else if (decision.action === 'drop_office') {
+    } else if (selectedAction === 'drop_office') {
       shipment.status = 'in_transit';
       pushHistory(shipment, 'in_transit', req, 'Package dropped at office via QR scan');
-    } else if (decision.action === 'office_pickup') {
+    } else if (selectedAction === 'office_pickup') {
       shipment.assignedDeliveryDriver = driverId;
       shipment.status = 'in_transit';
       pushHistory(shipment, 'assigned_delivery_driver', req, 'Auto-assigned via QR scan');
       pushHistory(shipment, 'in_transit', req, 'Package picked up from office for delivery via QR scan');
-    } else if (decision.action === 'assign_delivery') {
+    } else if (selectedAction === 'assign_delivery') {
       shipment.assignedDeliveryDriver = driverId;
       pushHistory(shipment, 'assigned_delivery_driver', req, 'Auto-assigned via QR scan');
-    } else if (decision.action === 'delivery') {
+    } else if (selectedAction === 'delivery') {
       shipment.status = 'delivered';
       shipment.deliveredAt = new Date();
       pushHistory(shipment, 'delivered', req, 'Package delivered via QR scan');
@@ -171,7 +264,8 @@ router.post('/scan', async (req, res) => {
 
     await shipment.save();
     const populated = await populateShipment(Shipment.findById(shipment._id));
-    res.json({ action: decision.action, message: decision.label + ' completed', shipment: populated });
+    const label = selected.label || decision.label;
+    res.json({ action: selectedAction, message: label + ' completed', shipment: populated });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
   }
@@ -264,6 +358,54 @@ router.patch('/shipments/:id/deliver', async (req, res) => {
       changedAt: new Date(),
       remarks: remarks || 'Package delivered by driver',
     });
+    await shipment.save();
+
+    const populated = await populateShipment(Shipment.findById(shipment._id));
+    res.json(populated);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+router.patch('/shipments/:id/cancel', async (req, res) => {
+  try {
+    const { remarks } = req.body;
+    const shipment = await Shipment.findById(req.params.id);
+    if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
+    if (shipment.status !== 'in_transit') {
+      return res.status(400).json({ message: 'Shipment must be in transit to cancel' });
+    }
+    if (shipment.assignedDeliveryDriver?.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'You are not the delivery driver for this shipment' });
+    }
+
+    shipment.status = 'cancelled';
+    pushHistory(shipment, 'cancelled', req, remarks || 'Shipment cancelled by driver');
+    await shipment.save();
+
+    const populated = await populateShipment(Shipment.findById(shipment._id));
+    res.json(populated);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+router.patch('/shipments/:id/return-to-office', async (req, res) => {
+  try {
+    const { remarks } = req.body;
+    const shipment = await Shipment.findById(req.params.id);
+    if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
+    if (shipment.status !== 'in_transit') {
+      return res.status(400).json({ message: 'Shipment must be in transit to return to office' });
+    }
+
+    const isDeliveryDriver = shipment.assignedDeliveryDriver?.toString() === req.user._id.toString();
+    if (!isDeliveryDriver) {
+      return res.status(403).json({ message: 'You are not the delivery driver for this shipment' });
+    }
+
+    shipment.status = 'returned';
+    pushHistory(shipment, 'returned', req, remarks || 'Package returned to office by driver');
     await shipment.save();
 
     const populated = await populateShipment(Shipment.findById(shipment._id));
