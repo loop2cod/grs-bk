@@ -213,6 +213,13 @@ const createShipment = async (req, res) => {
       }],
     };
 
+    // For office drop-off pay-first, office handles the payment to customer
+    if (isOfficeDropoff && codTypeVal === 'pay_first') {
+      shipmentData.codPaidToCustomer = true;
+      shipmentData.codPaidToCustomerBy = req.user._id;
+      shipmentData.codPaidToCustomerAt = new Date();
+    }
+
     const shipment = await Shipment.create(shipmentData);
     const populated = await Shipment.findById(shipment._id)
       .populate([...basePopulate, { path: 'statusHistory.changedBy', select: 'name username role' }]);
@@ -281,6 +288,11 @@ const markAsPicked = async (req, res) => {
     shipment.status = 'picked';
     shipment.pickedAt = new Date();
     pushHistory(shipment, 'picked', req, remarks || 'Package picked up');
+    if (shipment.paymentMethod === 'cod' && shipment.codType === 'pay_first') {
+      shipment.codPaidToCustomer = true;
+      shipment.codPaidToCustomerBy = req.user._id;
+      shipment.codPaidToCustomerAt = new Date();
+    }
     await shipment.save();
 
     const populated = await Shipment.findById(shipment._id)
@@ -338,7 +350,7 @@ const handoverToCourier = async (req, res) => {
 
 const markDelivered = async (req, res) => {
   try {
-    const { remarks } = req.body;
+    const { remarks, collectedAmount } = req.body;
     const shipment = await Shipment.findById(req.params.id);
     if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
     if (shipment.status !== 'in_transit') {
@@ -348,6 +360,11 @@ const markDelivered = async (req, res) => {
     shipment.status = 'delivered';
     shipment.deliveredAt = new Date();
     pushHistory(shipment, 'delivered', req, remarks || 'Package delivered successfully');
+    if (shipment.paymentMethod === 'cod' && shipment.totalCollectible > 0) {
+      shipment.codCollectedBy = req.user._id;
+      shipment.codCollectedAt = new Date();
+      shipment.codCollectedAmount = collectedAmount || shipment.totalCollectible;
+    }
     await shipment.save();
 
     const populated = await Shipment.findById(shipment._id)
