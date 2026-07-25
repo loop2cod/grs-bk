@@ -376,4 +376,213 @@ router.get('/financial/pay-first', adminOnly, async (req, res) => {
   }
 });
 
+// Driver daily settlement history (grouped by day) with status
+router.get('/financial/driver/:id/daily', adminOnly, async (req, res) => {
+  try {
+    const Shipment = require('../models/Shipment');
+    const SettlementRecord = require('../models/SettlementRecord');
+    const mongoose = require('mongoose');
+    const driverId = req.params.id;
+    const driverOid = mongoose.Types.ObjectId.createFromHexString(driverId);
+    const { dateFrom, dateTo } = req.query;
+
+    const dateFilter = {};
+    if (dateFrom) {
+      const from = new Date(dateFrom);
+      from.setHours(0, 0, 0, 0);
+      dateFilter.$gte = from;
+    }
+    if (dateTo) {
+      const to = new Date(dateTo);
+      to.setHours(23, 59, 59, 999);
+      dateFilter.$lte = to;
+    }
+    const hasDates = Object.keys(dateFilter).length > 0;
+
+    const [codDays, payFirstDays, returnDays] = await Promise.all([
+      Shipment.aggregate([
+        {
+          $match: {
+            assignedDeliveryDriver: driverOid,
+            ...(hasDates
+              ? { codCollectedAt: { ...dateFilter, $ne: null } }
+              : { codCollectedAt: { $ne: null } }),
+          },
+        },
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$codCollectedAt' } },
+            codCollectedTotal: { $sum: { $ifNull: ['$codCollectedAmount', 0] } },
+            codDeliveryCount: { $sum: 1 },
+          },
+        },
+        { $project: { _id: 0, date: '$_id', codCollectedTotal: 1, codDeliveryCount: 1 } },
+      ]),
+      Shipment.aggregate([
+        {
+          $match: {
+            assignedPickupDriver: driverOid,
+            codPaidToCustomer: true,
+            ...(hasDates
+              ? { codPaidToCustomerAt: { ...dateFilter, $ne: null } }
+              : { codPaidToCustomerAt: { $ne: null } }),
+          },
+        },
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$codPaidToCustomerAt' } },
+            payFirstTotal: { $sum: { $ifNull: ['$itemValue', 0] } },
+            payFirstCount: { $sum: 1 },
+          },
+        },
+        { $project: { _id: 0, date: '$_id', payFirstTotal: 1, payFirstCount: 1 } },
+      ]),
+      Shipment.aggregate([
+        {
+          $match: {
+            returnChargeCollectedBy: driverOid,
+            ...(hasDates
+              ? { returnChargeCollectedAt: { ...dateFilter, $ne: null } }
+              : { returnChargeCollectedAt: { $ne: null } }),
+          },
+        },
+        {
+          $group: {
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$returnChargeCollectedAt' } },
+            returnChargeTotal: { $sum: { $ifNull: ['$returnCharge', 0] } },
+            returnChargeCount: { $sum: 1 },
+          },
+        },
+        { $project: { _id: 0, date: '$_id', returnChargeTotal: 1, returnChargeCount: 1 } },
+      ]),
+    ]);
+
+    const dayMap = new Map();
+
+    for (const d of codDays) {
+      dayMap.set(d.date, { date: d.date, codCollectedTotal: d.codCollectedTotal, codDeliveryCount: d.codDeliveryCount, payFirstTotal: 0, payFirstCount: 0, returnChargeTotal: 0, returnChargeCount: 0 });
+    }
+    for (const d of payFirstDays) {
+      const existing = dayMap.get(d.date) || { date: d.date, codCollectedTotal: 0, codDeliveryCount: 0, payFirstTotal: 0, payFirstCount: 0, returnChargeTotal: 0, returnChargeCount: 0 };
+      existing.payFirstTotal = d.payFirstTotal;
+      existing.payFirstCount = d.payFirstCount;
+      dayMap.set(d.date, existing);
+    }
+    for (const d of returnDays) {
+      const existing = dayMap.get(d.date) || { date: d.date, codCollectedTotal: 0, codDeliveryCount: 0, payFirstTotal: 0, payFirstCount: 0, returnChargeTotal: 0, returnChargeCount: 0 };
+      existing.returnChargeTotal = d.returnChargeTotal;
+      existing.returnChargeCount = d.returnChargeCount;
+      dayMap.set(d.date, existing);
+    }
+
+    const dates = [...dayMap.keys()];
+    const records = dates.length > 0
+      ? await SettlementRecord.find({ driver: driverOid, date: { $in: dates } }).lean()
+      : [];
+    const recordMap = new Map(records.map(r => [r.date, r]));
+
+    const days = [...dayMap.values()]
+      .map(d => {
+        const rec = recordMap.get(d.date);
+        return {
+          ...d,
+          totalAccountability: d.codCollectedTotal + d.returnChargeTotal,
+          settlement: rec
+            ? { submitted: true, status: rec.status, submittedAt: rec.submittedAt }
+            : { submitted: false },
+        };
+      })
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    res.json(days);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Admin submit settlement for a driver (computes from shipment data)
+router.post('/settlements/driver/:driverId/submit', adminOnly, async (req, res) => {
+  try {
+    const Shipment = require('../models/Shipment');
+    const SettlementRecord = require('../models/SettlementRecord');
+    const mongoose = require('mongoose');
+    const driverId = req.params.driverId;
+    const driverOid = mongoose.Types.ObjectId.createFromHexString(driverId);
+    const { date } = req.body;
+    if (!date) return res.status(400).json({ message: 'date is required' });
+
+    const parts = date.split('-');
+    const uaeDate = new Date(Date.UTC(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2])));
+    const dayStart = new Date(uaeDate.getTime() - 4 * 60 * 60 * 1000);
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+    const shipments = await Shipment.find({
+      $or: [
+        { assignedDeliveryDriver: driverId, deliveredAt: { $gte: dayStart, $lt: dayEnd } },
+        { assignedPickupDriver: driverId, pickedAt: { $gte: dayStart, $lt: dayEnd } },
+        { returnChargeCollectedBy: driverId, returnChargeCollectedAt: { $gte: dayStart, $lt: dayEnd } },
+      ],
+    }).lean();
+
+    let codCollectedTotal = 0, codDeliveryCount = 0;
+    let payFirstTotal = 0, payFirstCount = 0;
+    let returnChargeTotal = 0, returnChargeCount = 0;
+
+    for (const s of shipments) {
+      if (s.assignedDeliveryDriver?.toString() === driverId && s.codCollectedAmount) {
+        codCollectedTotal += s.codCollectedAmount;
+        codDeliveryCount++;
+      }
+      if (s.assignedPickupDriver?.toString() === driverId && s.codType === 'pay_first' && s.codPaidToCustomer) {
+        payFirstTotal += s.itemValue || 0;
+        payFirstCount++;
+      }
+      if (s.returnChargeCollectedBy?.toString() === driverId && s.returnCharge) {
+        returnChargeTotal += s.returnCharge;
+        returnChargeCount++;
+      }
+    }
+
+    const totalAccountability = codCollectedTotal + returnChargeTotal;
+
+    const record = await SettlementRecord.findOneAndUpdate(
+      { driver: driverOid, date },
+      {
+        driver: driverOid,
+        date,
+        codCollectedTotal,
+        codDeliveryCount,
+        payFirstTotal,
+        payFirstCount,
+        returnChargeTotal,
+        returnChargeCount,
+        totalAccountability,
+        status: 'submitted',
+        submittedAt: new Date(),
+      },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+
+    res.json({ message: 'Settlement submitted', record });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
+// Admin confirm a driver's settlement
+router.patch('/settlements/:id/confirm', adminOnly, async (req, res) => {
+  try {
+    const SettlementRecord = require('../models/SettlementRecord');
+    const record = await SettlementRecord.findByIdAndUpdate(
+      req.params.id,
+      { status: 'confirmed', confirmedAt: new Date(), confirmedBy: req.user._id },
+      { new: true },
+    );
+    if (!record) return res.status(404).json({ message: 'Settlement record not found' });
+    res.json(record);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
+
 module.exports = router;

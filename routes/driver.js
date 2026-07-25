@@ -4,6 +4,7 @@ const { authorize } = require('../middleware/roleCheck');
 const User = require('../models/User');
 const AuthLog = require('../models/AuthLog');
 const Shipment = require('../models/Shipment');
+const SettlementRecord = require('../models/SettlementRecord');
 
 const router = Router();
 
@@ -562,6 +563,8 @@ router.get('/daily-summary', async (req, res) => {
     const returnChargeTotal = fin.returnChargeTotal || 0;
     const totalAccountability = codCollectedTotal + returnChargeTotal;
 
+    const settlementRecord = await SettlementRecord.findOne({ driver: driverId, date: displayDate });
+
     res.json({
       date: displayDate,
       pickups,
@@ -577,6 +580,9 @@ router.get('/daily-summary', async (req, res) => {
         payFirstCount: fin.payFirstCount || 0,
         returnChargeCount: fin.returnChargeCount || 0,
       },
+      settlementStatus: settlementRecord
+        ? { submitted: true, status: settlementRecord.status, submittedAt: settlementRecord.submittedAt }
+        : { submitted: false },
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
