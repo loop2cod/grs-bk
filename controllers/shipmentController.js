@@ -41,6 +41,8 @@ const listShipments = async (req, res) => {
     const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 20));
     const status = req.query.status;
     const search = req.query.search;
+    const dateFrom = req.query.dateFrom;
+    const dateTo = req.query.dateTo;
     const skip = (page - 1) * limit;
 
     const pipeline = [];
@@ -88,6 +90,19 @@ const listShipments = async (req, res) => {
         { trackingNumber: { $regex: search, $options: 'i' } },
         { 'customer.name': { $regex: search, $options: 'i' } },
       ];
+    }
+    if (dateFrom || dateTo) {
+      matchStage.createdAt = {};
+      if (dateFrom) {
+        const from = new Date(dateFrom);
+        from.setHours(0, 0, 0, 0);
+        matchStage.createdAt.$gte = from;
+      }
+      if (dateTo) {
+        const to = new Date(dateTo);
+        to.setHours(23, 59, 59, 999);
+        matchStage.createdAt.$lte = to;
+      }
     }
     if (Object.keys(matchStage).length > 0) {
       pipeline.push({ $match: matchStage });
