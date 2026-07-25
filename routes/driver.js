@@ -326,6 +326,11 @@ router.patch('/shipments/:id/pickup', async (req, res) => {
       changedAt: new Date(),
       remarks: remarks || 'Package picked up by driver',
     });
+    if (shipment.paymentMethod === 'cod' && shipment.codType === 'pay_first') {
+      shipment.codPaidToCustomer = true;
+      shipment.codPaidToCustomerBy = req.user._id;
+      shipment.codPaidToCustomerAt = new Date();
+    }
     await shipment.save();
 
     const populated = await populateShipment(Shipment.findById(shipment._id));
@@ -492,11 +497,19 @@ router.get('/daily-summary', async (req, res) => {
         {
           $group: {
             _id: null,
-            codCollectedTotal: { $sum: { $ifNull: ['$codCollectedAmount', 0] } },
+            codCollectedTotal: {
+              $sum: {
+                $cond: [
+                  { $and: [{ $ne: ['$assignedDeliveryDriver', null] }, { $eq: ['$assignedDeliveryDriver', driverId] }] },
+                  { $ifNull: ['$codCollectedAmount', 0] },
+                  0,
+                ],
+              },
+            },
             payFirstTakenTotal: {
               $sum: {
                 $cond: [
-                  { $and: [{ $eq: ['$codType', 'pay_first'] }, { $eq: ['$codPaidToCustomer', true] }] },
+                  { $and: [{ $eq: ['$codType', 'pay_first'] }, { $eq: ['$codPaidToCustomer', true] }, { $eq: ['$assignedPickupDriver', driverId] }] },
                   { $ifNull: ['$itemValue', 0] },
                   0,
                 ],
