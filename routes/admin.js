@@ -78,25 +78,48 @@ router.get('/auth-logs/:id', adminOnly, getUserAuthLogs);
 
 // ── Financial Reports ──
 
+function dateMatch(dateFrom, dateTo, field) {
+  if (!dateFrom && !dateTo) return null;
+  const cond = {};
+  if (dateFrom) {
+    const from = new Date(dateFrom);
+    from.setHours(0, 0, 0, 0);
+    cond.$gte = from;
+  }
+  if (dateTo) {
+    const to = new Date(dateTo);
+    to.setHours(23, 59, 59, 999);
+    cond.$lte = to;
+  }
+  return { [field]: cond };
+}
+
 // Overall financial summary
 router.get('/financial/summary', adminOnly, async (req, res) => {
   try {
     const Shipment = require('../models/Shipment');
+    const { dateFrom, dateTo } = req.query;
+
+    const codDateMatch = dateMatch(dateFrom, dateTo, 'codCollectedAt');
+    const pfDateMatch = dateMatch(dateFrom, dateTo, 'codPaidToCustomerAt');
+    const rcDateMatch = dateMatch(dateFrom, dateTo, 'returnChargeCollectedAt');
+    const createdDateMatch = dateMatch(dateFrom, dateTo, 'createdAt');
 
     const [codStats, payFirstStats, returnStats, shipmentStats] = await Promise.all([
       Shipment.aggregate([
-        { $match: { codCollectedBy: { $ne: null } } },
+        { $match: { ...(codDateMatch || { codCollectedBy: { $ne: null } }), codCollectedBy: { $ne: null } } },
         { $group: { _id: null, total: { $sum: { $ifNull: ['$codCollectedAmount', 0] } }, count: { $sum: 1 } } },
       ]),
       Shipment.aggregate([
-        { $match: { codPaidToCustomer: true, codType: 'pay_first' } },
+        { $match: { ...(pfDateMatch || {}), codPaidToCustomer: true, codType: 'pay_first' } },
         { $group: { _id: null, total: { $sum: { $ifNull: ['$itemValue', 0] } }, count: { $sum: 1 } } },
       ]),
       Shipment.aggregate([
-        { $match: { returnChargeCollectedBy: { $ne: null } } },
+        { $match: { ...(rcDateMatch || { returnChargeCollectedBy: { $ne: null } }), returnChargeCollectedBy: { $ne: null } } },
         { $group: { _id: null, total: { $sum: { $ifNull: ['$returnCharge', 0] } }, count: { $sum: 1 } } },
       ]),
       Shipment.aggregate([
+        { $match: createdDateMatch || {} },
         {
           $group: {
             _id: null,
@@ -140,18 +163,23 @@ router.get('/financial/drivers', adminOnly, async (req, res) => {
   try {
     const Shipment = require('../models/Shipment');
     const User = require('../models/User');
+    const { dateFrom, dateTo } = req.query;
+
+    const codDateMatch = dateMatch(dateFrom, dateTo, 'codCollectedAt');
+    const pfDateMatch = dateMatch(dateFrom, dateTo, 'codPaidToCustomerAt');
+    const rcDateMatch = dateMatch(dateFrom, dateTo, 'returnChargeCollectedAt');
 
     const [byDelivery, byPayFirst, byReturn] = await Promise.all([
       Shipment.aggregate([
-        { $match: { codCollectedBy: { $ne: null }, assignedDeliveryDriver: { $ne: null } } },
+        { $match: { ...(codDateMatch || { codCollectedBy: { $ne: null } }), codCollectedBy: { $ne: null }, assignedDeliveryDriver: { $ne: null } } },
         { $group: { _id: '$assignedDeliveryDriver', codCollectedTotal: { $sum: { $ifNull: ['$codCollectedAmount', 0] } }, codDeliveryCount: { $sum: 1 } } },
       ]),
       Shipment.aggregate([
-        { $match: { codPaidToCustomer: true, codType: 'pay_first' } },
+        { $match: { ...(pfDateMatch || {}), codPaidToCustomer: true, codType: 'pay_first' } },
         { $group: { _id: '$codPaidToCustomerBy', payFirstTotal: { $sum: { $ifNull: ['$itemValue', 0] } }, payFirstCount: { $sum: 1 } } },
       ]),
       Shipment.aggregate([
-        { $match: { returnChargeCollectedBy: { $ne: null } } },
+        { $match: { ...(rcDateMatch || { returnChargeCollectedBy: { $ne: null } }), returnChargeCollectedBy: { $ne: null } } },
         { $group: { _id: '$returnChargeCollectedBy', returnChargeTotal: { $sum: { $ifNull: ['$returnCharge', 0] } }, returnChargeCount: { $sum: 1 } } },
       ]),
     ]);
@@ -214,17 +242,46 @@ router.get('/financial/driver/:id', adminOnly, async (req, res) => {
     const mongoose = require('mongoose');
     const driverId = req.params.id;
     const driverOid = mongoose.Types.ObjectId.createFromHexString(driverId);
+    const { dateFrom, dateTo } = req.query;
+
+    const aggMatch = {
+      $or: [
+        { assignedDeliveryDriver: driverOid, deliveredAt: { $ne: null } },
+        { assignedPickupDriver: driverOid, pickedAt: { $ne: null } },
+      ],
+    };
+    const findMatch = {
+      $or: [
+        { assignedDeliveryDriver: driverId, deliveredAt: { $ne: null } },
+        { assignedPickupDriver: driverId, pickedAt: { $ne: null } },
+      ],
+    };
+
+    if (dateFrom || dateTo) {
+      const dateCond = {};
+      if (dateFrom) {
+        const from = new Date(dateFrom);
+        from.setHours(0, 0, 0, 0);
+        dateCond.$gte = from;
+      }
+      if (dateTo) {
+        const to = new Date(dateTo);
+        to.setHours(23, 59, 59, 999);
+        dateCond.$lte = to;
+      }
+      aggMatch.$or = [
+        { assignedDeliveryDriver: driverOid, deliveredAt: dateCond },
+        { assignedPickupDriver: driverOid, pickedAt: dateCond },
+      ];
+      findMatch.$or = [
+        { assignedDeliveryDriver: driverId, deliveredAt: dateCond },
+        { assignedPickupDriver: driverId, pickedAt: dateCond },
+      ];
+    }
 
     const [settlement, shipments] = await Promise.all([
       Shipment.aggregate([
-        {
-          $match: {
-            $or: [
-              { assignedDeliveryDriver: driverOid, deliveredAt: { $ne: null } },
-              { assignedPickupDriver: driverOid, pickedAt: { $ne: null } },
-            ],
-          },
-        },
+        { $match: aggMatch },
         {
           $group: {
             _id: null,
@@ -259,12 +316,7 @@ router.get('/financial/driver/:id', adminOnly, async (req, res) => {
           },
         },
       ]),
-      Shipment.find({
-        $or: [
-          { assignedDeliveryDriver: driverId, deliveredAt: { $ne: null } },
-          { assignedPickupDriver: driverId, pickedAt: { $ne: null } },
-        ],
-      })
+      Shipment.find(findMatch)
         .populate('customer', 'name')
         .select('trackingNumber status paymentMethod codType itemValue deliveryCharge totalCollectible codCollectedAmount codPaidToCustomer codPaidToCustomerAt codCollectedAt deliveredAt pickedAt assignedPickupDriver assignedDeliveryDriver')
         .sort({ deliveredAt: -1, pickedAt: -1 }),
@@ -292,8 +344,24 @@ router.get('/financial/driver/:id', adminOnly, async (req, res) => {
 router.get('/financial/pay-first', adminOnly, async (req, res) => {
   try {
     const Shipment = require('../models/Shipment');
+    const { dateFrom, dateTo } = req.query;
 
-    const shipments = await Shipment.find({ codType: 'pay_first' })
+    const filter = { codType: 'pay_first' };
+    if (dateFrom || dateTo) {
+      filter.createdAt = {};
+      if (dateFrom) {
+        const from = new Date(dateFrom);
+        from.setHours(0, 0, 0, 0);
+        filter.createdAt.$gte = from;
+      }
+      if (dateTo) {
+        const to = new Date(dateTo);
+        to.setHours(23, 59, 59, 999);
+        filter.createdAt.$lte = to;
+      }
+    }
+
+    const shipments = await Shipment.find(filter)
       .populate('customer', 'name')
       .populate('assignedPickupDriver', 'name username')
       .populate('assignedDeliveryDriver', 'name username')
