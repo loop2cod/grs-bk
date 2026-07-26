@@ -153,9 +153,9 @@ const determineAction = (shipment, driverId) => {
     if (shipment.assignedDeliveryDriver?.toString() === driverId.toString()) {
       return {
         allowed: true,
-        action: 'drop_office_returned',
-        label: 'Drop returned package at office',
-        description: 'Mark this returned package as dropped at the office, so another driver can re-deliver it.',
+        action: 'awaiting_admin_drop_returned',
+        label: 'Returned Package — Awaiting Admin',
+        description: 'Package has been returned. The admin will mark it as dropped at the office for re-delivery.',
         altActions: [],
       };
     }
@@ -168,9 +168,9 @@ const determineAction = (shipment, driverId) => {
   if (shipment.status === 'cancelled') {
     return {
       allowed: true,
-      action: 'drop_cancelled_at_office',
-      label: 'Drop cancelled package at office',
-      description: 'Drop this cancelled package at the office, so it can be returned to the original customer.',
+      action: 'awaiting_admin_drop_cancelled',
+      label: 'Cancelled Package — Awaiting Admin',
+      description: 'Package has been cancelled. The admin will confirm the drop and set the return charge.',
       altActions: [],
     };
   }
@@ -224,18 +224,12 @@ router.post('/scan', async (req, res) => {
     } else if (selectedAction === 'return_to_office') {
       shipment.status = 'returned';
       pushHistory(shipment, 'returned', req, req.body.remarks || 'Package returned to office via QR scan');
-    } else if (selectedAction === 'drop_office_returned') {
-      shipment.assignedDeliveryDriver = null;
-      shipment.status = 'in_transit';
-      pushHistory(shipment, 'in_transit', req, 'Returned package dropped at office via QR scan');
-    } else if (selectedAction === 'drop_cancelled_at_office') {
-      shipment.assignedDeliveryDriver = null;
-      shipment.returnToSender = true;
-      shipment.status = 'picked';
-      if (req.body.returnCharge != null) {
-        shipment.returnCharge = req.body.returnCharge;
-      }
-      pushHistory(shipment, 'picked', req, 'Cancelled package dropped at office via QR scan');
+    } else if (selectedAction === 'awaiting_admin_drop_returned') {
+      // No-op: driver cannot self-mark; admin must confirm via mark-in-transit
+      pushHistory(shipment, 'returned', req, 'Package returned — awaiting admin drop-off confirmation');
+    } else if (selectedAction === 'awaiting_admin_drop_cancelled') {
+      // No-op: driver cannot self-mark; admin must confirm via mark-cancelled-dropped
+      pushHistory(shipment, 'cancelled', req, 'Cancelled package — awaiting admin drop-off confirmation');
     } else if (selectedAction === 'pickup_return_to_sender') {
       shipment.assignedDeliveryDriver = driverId;
       shipment.returnToSender = true;

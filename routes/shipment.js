@@ -7,7 +7,7 @@ const {
   listShipments, getShipment, createShipment,
   assignPickupDriver, assignDeliveryDriver,
   markAsPicked, markAsInTransit, handoverToCourier,
-  markDelivered, cancelShipment,
+  markDelivered, cancelShipment, markCancelledAsDropped,
 } = require('../controllers/shipmentController');
 const Shipment = require('../models/Shipment');
 const { generateLabel } = require('../services/labelService');
@@ -43,6 +43,7 @@ router.patch('/:id/handover-courier', [
 ], handoverToCourier);
 router.patch('/:id/deliver', markDelivered);
 router.patch('/:id/cancel', cancelShipment);
+router.patch('/:id/mark-cancelled-dropped', markCancelledAsDropped);
 router.get('/:id/label', async (req, res) => {
   try {
     const shipment = await Shipment.findById(req.params.id)

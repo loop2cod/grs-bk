@@ -308,11 +308,14 @@ const markAsInTransit = async (req, res) => {
     const { remarks } = req.body;
     const shipment = await Shipment.findById(req.params.id);
     if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
-    if (!['picked', 'pending'].includes(shipment.status)) {
-      return res.status(400).json({ message: 'Shipment must be picked or pending to mark in transit' });
+    if (!['picked', 'pending', 'returned'].includes(shipment.status)) {
+      return res.status(400).json({ message: 'Shipment must be picked, pending, or returned to mark in transit' });
     }
 
     shipment.status = 'in_transit';
+    if (shipment.status === 'returned') {
+      shipment.assignedDeliveryDriver = null;
+    }
     if (!shipment.pickedAt) shipment.pickedAt = new Date();
     pushHistory(shipment, 'in_transit', req, remarks || 'Shipment in transit');
     await shipment.save();
@@ -396,9 +399,35 @@ const cancelShipment = async (req, res) => {
   }
 };
 
+const markCancelledAsDropped = async (req, res) => {
+  try {
+    const { returnCharge, remarks } = req.body;
+    const shipment = await Shipment.findById(req.params.id);
+    if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
+    if (shipment.status !== 'cancelled') {
+      return res.status(400).json({ message: 'Shipment must be cancelled' });
+    }
+
+    shipment.assignedDeliveryDriver = null;
+    shipment.returnToSender = true;
+    shipment.status = 'picked';
+    if (returnCharge != null) {
+      shipment.returnCharge = returnCharge;
+    }
+    pushHistory(shipment, 'picked', req, remarks || 'Cancelled package dropped at office by admin');
+    await shipment.save();
+
+    const populated = await Shipment.findById(shipment._id)
+      .populate([...basePopulate, { path: 'statusHistory.changedBy', select: 'name username role' }]);
+    res.json(populated);
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+};
+
 module.exports = {
   listShipments, getShipment, createShipment,
   assignPickupDriver, assignDeliveryDriver,
   markAsPicked, markAsInTransit, handoverToCourier,
-  markDelivered, cancelShipment,
+  markDelivered, cancelShipment, markCancelledAsDropped,
 };
