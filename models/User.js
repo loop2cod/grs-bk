@@ -12,6 +12,7 @@ const userSchema = new mongoose.Schema({
   status: { type: String, enum: ['active', 'inactive'], default: 'active' },
   mustChangePassword: { type: Boolean, default: false },
   createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  defaultPricing: { type: mongoose.Schema.Types.ObjectId, ref: 'PricingSetting', default: null },
 }, { timestamps: true });
 
 userSchema.pre('save', async function (next) {
