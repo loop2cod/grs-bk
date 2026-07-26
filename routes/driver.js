@@ -108,7 +108,7 @@ const determineAction = (shipment, driverId) => {
       return { allowed: true, action: 'pickup_return_to_sender', label: 'Pick up for return to sender', description: 'Pick up this cancelled package from the office to return it to the original customer.' };
     }
     if (shipment.assignedPickupDriver && shipment.assignedPickupDriver.toString() === driverId.toString()) {
-      return { allowed: true, action: 'drop_office', label: 'Drop at office', description: 'Mark this package as dropped at the office.' };
+      return { allowed: true, action: 'awaiting_admin_drop', label: 'Picked Up — Awaiting Admin', description: 'Package has been picked up. The admin will mark it as dropped at the office.' };
     }
     if (!shipment.assignedPickupDriver) {
       return { allowed: true, action: 'office_pickup', label: 'Pick up from office for delivery', description: 'Collect this package from the office and deliver to the customer.' };
@@ -261,9 +261,9 @@ router.post('/scan', async (req, res) => {
         shipment.codPaidToCustomerBy = req.user._id;
         shipment.codPaidToCustomerAt = new Date();
       }
-    } else if (selectedAction === 'drop_office') {
-      shipment.status = 'in_transit';
-      pushHistory(shipment, 'in_transit', req, 'Package dropped at office via QR scan');
+    } else if (selectedAction === 'awaiting_admin_drop') {
+      // No-op: driver cannot self-mark drop; admin must confirm via mark-in-transit
+      pushHistory(shipment, 'picked', req, 'Package picked up — awaiting admin drop-off confirmation');
     } else if (selectedAction === 'office_pickup') {
       shipment.assignedDeliveryDriver = driverId;
       shipment.status = 'in_transit';
@@ -332,29 +332,6 @@ router.patch('/shipments/:id/pickup', async (req, res) => {
       shipment.codPaidToCustomerBy = req.user._id;
       shipment.codPaidToCustomerAt = new Date();
     }
-    await shipment.save();
-
-    const populated = await populateShipment(Shipment.findById(shipment._id));
-    res.json(populated);
-  } catch (error) {
-    res.status(500).json({ message: 'Server error', error: error.message });
-  }
-});
-
-router.patch('/shipments/:id/drop-office', async (req, res) => {
-  try {
-    const { remarks } = req.body;
-    const shipment = await Shipment.findById(req.params.id);
-    if (!shipment) return res.status(404).json({ message: 'Shipment not found' });
-    if (shipment.status !== 'picked') {
-      return res.status(400).json({ message: 'Shipment must be picked up first' });
-    }
-    if (shipment.assignedPickupDriver?.toString() !== req.user._id.toString()) {
-      return res.status(403).json({ message: 'You are not the pickup driver for this shipment' });
-    }
-
-    shipment.status = 'in_transit';
-    pushHistory(shipment, 'in_transit', req, remarks || 'Package dropped at office');
     await shipment.save();
 
     const populated = await populateShipment(Shipment.findById(shipment._id));
