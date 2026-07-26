@@ -93,7 +93,7 @@ const resetPassword = async (req, res) => {
 
 const getProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(req.user._id).populate('defaultPricing', 'name');
     res.json(user.toJSON());
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

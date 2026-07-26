@@ -15,7 +15,7 @@ router.use(protect, authorize('customer'));
 
 router.get('/profile', async (req, res) => {
   try {
-    const customer = await User.findById(req.user._id);
+    const customer = await User.findById(req.user._id).populate('defaultPricing', 'name');
     res.json(customer);
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -118,6 +118,12 @@ router.post('/shipments', [
     let pricing = null;
     if (pricingTier) {
       pricing = await PricingSetting.findById(pricingTier);
+    }
+    if (!pricing) {
+      const customer = await User.findById(req.user._id).select('defaultPricing');
+      if (customer?.defaultPricing) {
+        pricing = await PricingSetting.findById(customer.defaultPricing);
+      }
     }
     if (!pricing) {
       pricing = await PricingSetting.findOne({ isDefault: true });

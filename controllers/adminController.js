@@ -184,7 +184,9 @@ const createCustomer = async (req, res) => {
 
 const getCustomer = async (req, res) => {
   try {
-    const customer = await User.findOne({ _id: req.params.id, role: 'customer' }).populate('createdBy', 'name username');
+    const customer = await User.findOne({ _id: req.params.id, role: 'customer' })
+      .populate('createdBy', 'name username')
+      .populate('defaultPricing', 'name');
     if (!customer) return res.status(404).json({ message: 'Customer not found' });
     res.json(customer);
   } catch (error) {
@@ -194,12 +196,14 @@ const getCustomer = async (req, res) => {
 
 const updateCustomer = async (req, res) => {
   try {
-    const { name, email, phone, status, address } = req.body;
+    const { name, email, phone, status, address, defaultPricing } = req.body;
+    const updateFields = { name, email, phone, status, address };
+    if (defaultPricing !== undefined) updateFields.defaultPricing = defaultPricing || null;
     const customer = await User.findOneAndUpdate(
       { _id: req.params.id, role: 'customer' },
-      { name, email, phone, status, address },
+      updateFields,
       { new: true, runValidators: true }
-    );
+    ).populate('defaultPricing', 'name');
     if (!customer) return res.status(404).json({ message: 'Customer not found' });
     res.json(customer);
   } catch (error) {
