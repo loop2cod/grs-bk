@@ -142,8 +142,7 @@ const generateLabel = async (shipment) => {
     ['BOOKED BY', cbLabel],
     ['DATE / TIME', `${dStr} ${tStr}`],
     ['WEIGHT', weightStr],
-    ['ITEMS', `${shipment.totalQuantity || '—'} pcs`],
-    ['PAYMENT', isCOD ? `COD${shipment.codType === 'pay_first' ? ' (Pay First)' : ''}` : isPartial ? 'Partially Paid' : 'Prepaid'],
+    ['PAYMENT', isCOD ? `COD${shipment.codType === 'pay_first' ? ' (Pay First)' : ''}` : isPartial ? 'Partial' : 'Prepaid'],
   ];
   if (isCOD || isPartial) {
     cells.push(['ITEM VALUE', `AED ${Number(shipment.itemValue || 0).toFixed(2)}`]);
@@ -155,7 +154,7 @@ const generateLabel = async (shipment) => {
 
   const cols = 2;
   const cellW = boxW / cols;
-  const cellH = 15;
+  const cellH = 13;
   const tableH = Math.ceil(cells.length / cols) * cellH;
 
   doc.rect(M, y, boxW, tableH).lineWidth(0.75).strokeColor(line).stroke();
@@ -168,8 +167,8 @@ const generateLabel = async (shipment) => {
     if (col > 0) doc.moveTo(cx, cy).lineTo(cx, cy + cellH).lineWidth(0.5).strokeColor(line).stroke();
     if (row > 0) doc.moveTo(cx, cy).lineTo(cx + cellW, cy).lineWidth(0.5).strokeColor(line).stroke();
 
-    doc.fillColor(sub).font('Helvetica-Bold').fontSize(5).text(k, cx + PAD, cy + 2, { characterSpacing: 0.4 });
-    doc.fillColor(ink).font('Helvetica').fontSize(6.5).text(v, cx + PAD, cy + 7.5, { width: cellW - 2 * PAD });
+    doc.fillColor(sub).font('Helvetica-Bold').fontSize(5).text(k, cx + PAD, cy + 1.5, { characterSpacing: 0.4 });
+    doc.fillColor(ink).font('Helvetica').fontSize(6).text(v, cx + PAD, cy + 6.5, { width: cellW - 2 * PAD });
   });
 
   y += tableH + 5;
@@ -200,8 +199,6 @@ const generateLabel = async (shipment) => {
   doc.font('Helvetica').fontSize(4.75);
   doc.text('Sharjah Publishing City Free Zone, Sharjah, UAE', M + PAD, y + 14, { width: boxW - 2 * PAD, align: 'center' });
   doc.font('Helvetica').fontSize(4.5).fillColor('#c6d3e3');
-  doc.text('This label is the property of GRS Delivery. Report tampering to the number above.', M + PAD, y + 22, { width: boxW - 2 * PAD, align: 'center' });
-
   // ─── corner brackets ───
   const cd = 5;
   doc.lineWidth(1.25).strokeColor(navy);
