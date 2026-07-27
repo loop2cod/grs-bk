@@ -31,8 +31,8 @@ const generateLabel = async (shipment) => {
   const isPartial = pm === 'partial';
   const badgeLabel = isCOD ? 'COD' : isPartial ? 'PARTIAL' : 'PREPAID';
   const pendingAmount = isPartial
-    ? (shipment.finalAmount || 0) - (shipment.paidAmount || 0)
-    : isCOD ? (shipment.finalAmount || 0) : 0;
+    ? Math.max(0, (shipment.totalCollectible || 0) - (shipment.paidAmount || 0))
+    : isCOD ? (shipment.totalCollectible || 0) : 0;
 
   // ─── outer frame ───
   doc.rect(1.5, 1.5, W - 3, H - 3).lineWidth(1).stroke(line);
@@ -140,11 +140,18 @@ const generateLabel = async (shipment) => {
   const cells = [
     ['CUSTOMER', cName],
     ['BOOKED BY', cbLabel],
-    ['DATE', dStr],
-    ['TIME', tStr],
+    ['DATE / TIME', `${dStr} ${tStr}`],
     ['WEIGHT', weightStr],
-    ['SERVICE', 'Standard'],
+    ['ITEMS', `${shipment.totalQuantity || '—'} pcs`],
+    ['PAYMENT', isCOD ? `COD${shipment.codType === 'pay_first' ? ' (Pay First)' : ''}` : isPartial ? 'Partially Paid' : 'Prepaid'],
   ];
+  if (isCOD || isPartial) {
+    cells.push(['ITEM VALUE', `AED ${Number(shipment.itemValue || 0).toFixed(2)}`]);
+    cells.push(['DELIVERY FEE', `AED ${Number(shipment.deliveryCharge || shipment.finalAmount || 0).toFixed(2)}`]);
+  }
+  if (isPartial) {
+    cells.push(['AMOUNT PAID', `AED ${Number(shipment.paidAmount || 0).toFixed(2)}`]);
+  }
 
   const cols = 2;
   const cellW = boxW / cols;
@@ -169,12 +176,17 @@ const generateLabel = async (shipment) => {
 
   // ─── COD / Pending amount banner (only if applicable) ───
   if (pendingAmount > 0) {
-    const codH = 16;
+    const codH = 22;
     const label = isPartial ? 'PENDING TO COLLECT' : 'COD TO COLLECT';
     doc.rect(M, y, boxW, codH).fillColor('#fdecee').fill();
     doc.rect(M, y, boxW, codH).lineWidth(0.75).strokeColor(accent).stroke();
     doc.fillColor(accent).font('Helvetica-Bold').fontSize(7.5);
-    doc.text(`${label}: AED ${Number(pendingAmount).toFixed(2)}`, M, y + 4, { width: boxW, align: 'center' });
+    doc.text(`${label}: AED ${Number(pendingAmount).toFixed(2)}`, M, y + 3, { width: boxW, align: 'center' });
+    const breakdown = isPartial
+      ? `Total AED ${Number(shipment.totalCollectible || 0).toFixed(2)} — Paid AED ${Number(shipment.paidAmount || 0).toFixed(2)}`
+      : `Item AED ${Number(shipment.itemValue || 0).toFixed(2)} + Delivery AED ${Number(shipment.deliveryCharge || shipment.finalAmount || 0).toFixed(2)}`;
+    doc.fillColor(accent).font('Helvetica').fontSize(5.5);
+    doc.text(breakdown, M, y + 12, { width: boxW, align: 'center' });
     y += codH + 5;
   }
 

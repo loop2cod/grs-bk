@@ -151,7 +151,7 @@ router.post('/shipments', [
     const deliveryChg = finalAmount;
     const isCod = paymentMethod === 'cod';
     const codTypeVal = isCod ? (codType || 'collect_on_delivery') : undefined;
-    const totalCollectible = isCod ? itemVal + deliveryChg : 0;
+    const totalCollectible = (isCod || paymentMethod === 'partial') ? itemVal + deliveryChg : 0;
 
     const shipmentData = {
       customer: req.user._id,

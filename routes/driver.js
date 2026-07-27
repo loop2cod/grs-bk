@@ -355,10 +355,13 @@ router.patch('/shipments/:id/deliver', async (req, res) => {
       changedAt: new Date(),
       remarks: remarks || 'Package delivered by driver',
     });
-    if (shipment.paymentMethod === 'cod' && shipment.totalCollectible > 0) {
+    if ((shipment.paymentMethod === 'cod' || shipment.paymentMethod === 'partial') && shipment.totalCollectible > 0) {
       shipment.codCollectedBy = req.user._id;
       shipment.codCollectedAt = new Date();
-      shipment.codCollectedAmount = collectedAmount || shipment.totalCollectible;
+      const expectedCollectible = shipment.paymentMethod === 'partial'
+        ? Math.max(0, shipment.totalCollectible - (shipment.paidAmount || 0))
+        : shipment.totalCollectible;
+      shipment.codCollectedAmount = collectedAmount || expectedCollectible;
     }
     await shipment.save();
 

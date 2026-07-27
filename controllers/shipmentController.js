@@ -172,7 +172,7 @@ const createShipment = async (req, res) => {
     const deliveryChg = finalAmount;
     const isCod = paymentMethod === 'cod';
     const codTypeVal = isCod ? (codType || 'collect_on_delivery') : undefined;
-    const totalCollectible = isCod ? itemVal + deliveryChg : 0;
+    const totalCollectible = (isCod || paymentMethod === 'partial') ? itemVal + deliveryChg : 0;
 
     const pt = pickupType || 'office_dropoff';
     const isOfficeDropoff = pt === 'office_dropoff';
